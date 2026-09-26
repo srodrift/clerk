@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import "./globals.css";
 export const metadata: Metadata = {
-  title: "Knot — Find the conflict",
+  title: "Unsent — Don’t send it yet.",
   description:
-    "Four sentences. Two cannot both be true. Pick the pair, then compare your judgment with Jev.",
+    "Check the reply you are about to send against the promises you already made.",
 };
 export default function RootLayout({
   children,

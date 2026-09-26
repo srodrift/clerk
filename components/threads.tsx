@@ -1,93 +1,65 @@
 "use client";
 import { useLayoutEffect, useState, type RefObject } from "react";
-import type { Pair } from "@/lib/sets";
-type Thread = {
-  id: string;
-  path: string;
-  start: [number, number];
-  end: [number, number];
-  user: boolean;
-};
-export function Threads({
-  board,
-  pairs,
-  modelPair,
-  userPair,
+export function Thread({
+  document,
+  promiseId,
 }: {
-  board: RefObject<HTMLDivElement | null>;
-  pairs: Pair[];
-  modelPair: string;
-  userPair: string;
+  document: RefObject<HTMLDivElement | null>;
+  promiseId: string;
 }) {
   const [drawing, setDrawing] = useState<{
     width: number;
     height: number;
-    threads: Thread[];
+    path: string;
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
   } | null>(null);
   useLayoutEffect(() => {
-    const element = board.current;
-    if (!element) return;
+    const root = document.current;
+    if (!root) return;
+    const draft = root.querySelector("[data-draft]"),
+      promise = root.querySelector(`[data-promise="${promiseId}"]`);
+    if (!draft || !promise) return;
     const measure = () => {
-      const box = element.getBoundingClientRect();
-      const threads = [
-        modelPair,
-        ...(userPair !== modelPair ? [userPair] : []),
-      ].flatMap((id, index) => {
-        const pair = pairs.find((p) => p.id === id);
-        if (!pair) return [];
-        const a = element.querySelector(`[data-sentence="${pair.first.id}"]`);
-        const b = element.querySelector(`[data-sentence="${pair.second.id}"]`);
-        if (!a || !b) return [];
-        const first = a.getBoundingClientRect(),
-          second = b.getBoundingClientRect();
-        // Threads travel through the gutters, with the cards shielding their text.
-        const x1 = first.left - box.left + first.width / 2,
-          y1 = first.top - box.top + first.height / 2;
-        const x2 = second.left - box.left + second.width / 2,
-          y2 = second.top - box.top + second.height / 2;
-        const sameRow = Math.abs(y1 - y2) < 10;
-        const sameColumn = Math.abs(x1 - x2) < 10;
-        const bend = index === 0 ? 1 : -1;
-        let path = `M ${x1} ${y1} C ${x1} ${(y1 + y2) / 2 + bend * 25}, ${x2} ${(y1 + y2) / 2 + bend * 25}, ${x2} ${y2}`;
-        if (sameRow)
-          path = `M ${x1} ${y1} C ${x1} ${first.bottom - box.top + 52}, ${x2} ${second.bottom - box.top + 52}, ${x2} ${y2}`;
-        if (sameColumn)
-          path = `M ${x1} ${y1} C ${first.right - box.left + 70} ${y1}, ${second.right - box.left + 70} ${y2}, ${x2} ${y2}`;
-        return [
-          {
-            id,
-            path,
-            start: [x1, y1] as [number, number],
-            end: [x2, y2] as [number, number],
-            user: index === 1,
-          },
-        ];
+      const box = root.getBoundingClientRect(),
+        a = draft.getBoundingClientRect(),
+        b = promise.getBoundingClientRect();
+      const x1 = a.right - box.left,
+        y1 = a.top - box.top + a.height * 0.58,
+        x2 = b.right - box.left,
+        y2 = b.top - box.top + b.height * 0.5;
+      const rail = box.width - 7;
+      setDrawing({
+        width: box.width,
+        height: box.height,
+        path: `M ${x1} ${y1} C ${rail} ${y1}, ${rail} ${y1 + 15}, ${rail} ${y1 + 40} L ${rail} ${y2 - 35} Q ${rail} ${y2}, ${x2} ${y2}`,
+        x1,
+        y1,
+        x2,
+        y2,
       });
-      setDrawing({ width: box.width, height: box.height, threads });
     };
     measure();
     const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    for (const card of element.querySelectorAll("[data-sentence]"))
-      observer.observe(card);
+    observer.observe(root);
+    observer.observe(draft);
+    observer.observe(promise);
     return () => observer.disconnect();
-  }, [board, pairs, modelPair, userPair]);
+  }, [document, promiseId]);
   if (!drawing) return null;
   return (
     <svg
-      className="threads"
+      className="collision-thread"
       width={drawing.width}
       height={drawing.height}
       viewBox={`0 0 ${drawing.width} ${drawing.height}`}
       aria-hidden="true"
     >
-      {drawing.threads.map((thread) => (
-        <path
-          key={thread.id}
-          d={thread.path}
-          className={thread.user ? "user-thread" : "jev-thread"}
-        />
-      ))}
+      <path d={drawing.path} />
+      <circle cx={drawing.x1} cy={drawing.y1} r="3.5" />
+      <circle cx={drawing.x2} cy={drawing.y2} r="3.5" />
     </svg>
   );
 }

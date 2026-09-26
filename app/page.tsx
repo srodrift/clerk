@@ -1,5 +1,7 @@
-import Knot from "./knot";
+import Unsent from "./unsent";
 export default function Page() {
-  return <Knot liveAvailable={Boolean(process.env.TYPESAFE_API_KEY?.trim())} />;
+  return (
+    <Unsent liveAvailable={Boolean(process.env.TYPESAFE_API_KEY?.trim())} />
+  );
 }
 export const dynamic = "force-dynamic";

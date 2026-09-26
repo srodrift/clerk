@@ -1,14 +1,11 @@
 import { z } from "zod";
-import { pairId, sets } from "@/lib/sets";
+import { makeState, situations } from "@/lib/situations";
 import { askJev, parseResponse, questions, rehearsal } from "@/lib/jev";
+import { decide } from "@/lib/decision";
 export const runtime = "nodejs";
 const schema = z.object({
-  setId: z.string(),
-  selected: z
-    .array(z.enum(["s1", "s2", "s3", "s4", "s5"]))
-    .length(2)
-    .refine((ids) => new Set(ids).size === 2),
-  customSentence: z.string().trim().min(1).max(240).optional(),
+  situationId: z.string(),
+  draft: z.string().trim().min(1).max(4000),
 });
 export async function POST(request: Request) {
   if (request.headers.get("sec-fetch-site") === "cross-site")
@@ -19,61 +16,48 @@ export async function POST(request: Request) {
   let parsed;
   try {
     const text = await request.text();
-    if (text.length > 5000)
+    if (text.length > 30000)
       return Response.json(
-        { error: "Keep your added sentence under 240 characters." },
+        { error: "Keep your reply under 4,000 characters." },
         { status: 413 },
       );
     parsed = schema.safeParse(JSON.parse(text));
   } catch {
-    return Response.json(
-      { error: "Send a valid sentence set." },
-      { status: 400 },
-    );
+    return Response.json({ error: "Send a valid reply." }, { status: 400 });
   }
   if (!parsed.success)
     return Response.json(
       {
         error:
-          "Choose exactly two different cards and keep your sentence under 240 characters.",
+          "Write a reply between 1 and 4,000 characters before checking it.",
       },
       { status: 400 },
     );
-  const { setId, selected, customSentence } = parsed.data;
-  const set = sets.find((s) => s.id === setId);
-  if (!set)
+  const { situationId, draft } = parsed.data;
+  const situation = situations.find((s) => s.id === situationId);
+  if (!situation)
     return Response.json(
-      { error: "This set does not exist." },
-      { status: 400 },
-    );
-  const sentences = customSentence
-    ? [...set.sentences, { id: "s5", text: customSentence }]
-    : set.sentences;
-  if (selected.some((id) => !sentences.some((s) => s.id === id)))
-    return Response.json(
-      { error: "Choose two cards from the current set." },
+      { error: "This situation does not exist." },
       { status: 400 },
     );
   const key = process.env.TYPESAFE_API_KEY?.trim();
-  if (customSentence && !key)
+  if (!key && draft !== situation.draft)
     return Response.json(
       {
         error:
-          "Your added sentence needs a live Jev judgment. Add TYPESAFE_API_KEY to .env.local and restart Knot. Rehearsal is available only for the unchanged built-in sets.",
+          "An edited reply needs a live check. Add TYPESAFE_API_KEY to .env.local and restart Unsent. Rehearsal is only available for the original built-in replies.",
       },
       { status: 503 },
     );
+  const state = makeState(situation, draft);
   try {
+    const fixed = key ? null : rehearsal(situation);
     const evaluation = key
-      ? await askJev(sentences, key)
+      ? await askJev(state, key)
       : {
-          result: parseResponse(rehearsal(set), sentences),
-          raw: rehearsal(set),
-          request: {
-            model: "jev-latest",
-            state: { sentences },
-            questions: questions(sentences),
-          },
+          result: parseResponse(fixed, state),
+          raw: fixed,
+          request: { model: "jev-latest", state, questions: questions(state) },
           roundTripMs: null,
         };
     return Response.json(
@@ -83,17 +67,15 @@ export async function POST(request: Request) {
         request: evaluation.request,
         roundTripMs: evaluation.roundTripMs,
         mode: key ? "live" : "rehearsal",
-        selectedPair: pairId(selected),
-        foundKnot:
-          pairId(selected) === evaluation.result.answers.worst_conflict.choice,
+        decision: decide(evaluation.result, state),
       },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (e) {
     const message =
-      e instanceof Error && e.message.startsWith("Jev could not judge")
+      e instanceof Error && e.message.startsWith("Jev could not check")
         ? e.message
-        : "Jev’s response was unavailable, timed out, or could not be verified. Please try again.";
+        : "Jev’s response was unavailable, timed out, or could not be verified. Your reply is still unsent. Please try again.";
     return Response.json({ error: message }, { status: 502 });
   }
 }
